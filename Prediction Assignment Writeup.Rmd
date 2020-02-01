@@ -1,0 +1,128 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "P.W. Jacobus"
+date: "1/31/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background 
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Project Goal
+The goal of the project is to predict the manner in which the participants did the exercise. This is the "classe" variable in the training set. Other variables may be used for prediction. The end result is to create a report describing the building of three models including cross validation, and expected sample error.  The best model (highest accuracy) will be applied to the validation data of 20 sample sets for results to be used in the subsequent quiz.
+
+## Load Libraries
+```{r Library Load}
+library(caret, warn.conflicts = FALSE, quietly=TRUE)
+library(rattle, warn.conflicts = FALSE, quietly=TRUE)
+library(randomForest, warn.conflicts = FALSE, quietly=TRUE)
+library(rpart, warn.conflicts = FALSE, quietly=TRUE)
+library(corrplot, warn.conflicts = FALSE, quietly=TRUE)
+```
+
+## Load Data and Examine/Clean the Data
+```{r Load Data}
+train_orig <- read.csv('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', header = TRUE)
+finalTest <- read.csv('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', header = TRUE)
+```
+It is clear from observing this data that many observations have have near-zero variations, and some have all N/A values. Additionally, some observations do not add to the analysis (first seven columns) and can be eliminated. Eliminating the NZV and N/A variables as well as the first seven columns will result in a much smaller data set.
+
+```{r Clean data}
+## Cleaning the data
+nearZero <- nearZeroVar(train_orig)
+trainData <- train_orig[, -nearZero]
+allNA <- colSums(is.na(trainData)) != 0
+trainData <- trainData[, !allNA]
+trainData <- trainData[, -c(1:7)]
+```
+The next step is splitting the data set in the standard 70/30% ratio between training and test data.
+```{r Training and Test Data splits}
+## Splitting the Training data into train and test data sets
+set.seed(1111)
+masterTrain <- createDataPartition(trainData$classe, p=0.7, list=FALSE)
+training <- trainData[masterTrain,]
+testing <- trainData[-masterTrain,]
+```
+
+## Examining Correlation
+A brief look at variable correlations will highlight how coupled the predictors are.
+```{r Correlation Plot}
+correlationMatrix <- cor(training[, -52])
+corrplot(correlationMatrix, order = "FPC", method = "color", type="lower")
+```
+
+By this plot, we can see that there are some variables that are highly correlated (blue), while many are uncorrelated (orange and red).
+
+## Prediction Modeling
+Per the course project guidelines, three models will be built and applied to the training dataset.  The one with the highest accuracy of prediction using the testing dataset will be used for the final prediction using the the validation (finalTest) dataset. The three models will be Classification Tree, Random Forest, and the Gradient Boosting  Models. Confusion matrices will be presented to show demonstrate the accuracy of the models against all of the factors.
+
+For cross-validation of the data, the k-fold cross validation method will be used for splitting the data into k-subsets. For the size of k, the R documentation suggest values of 3-10, so 5 is chosen as a reasonable value.
+```{r Cross Validation}
+trControlValues <- trainControl(method="cv", number=5)
+```
+
+### Classification Tree Model
+```{r Classification Tree}
+## Fitting the model
+CT_model <- train(classe~., data=training, method="rpart", trControl=trControlValues)
+## Looking into the model
+CT_model$finalModel
+fancyRpartPlot(CT_model$finalModel)
+## Predicting on the Test dataset
+CT_pred <- predict(CT_model, newdata = testing)
+CT_confusion <- confusionMatrix(CT_pred, testing$classe)
+CT_confusion$table
+CT_confusion$overall['Accuracy']
+## Plot Accuracy results by factor
+plot(CT_confusion$table, col=CT_confusion$byClass, main="Classification Tree")
+```
+
+The accuracy of the Classification Tree is approximately 0.57, which appears to be fairly low. The sample error is approximately 0.43.
+
+### Random Forest Model
+``` {r Random Forest}
+## Fitting the model
+RF_model <- train(classe~., data=training, method="rf", trControl=trControlValues)
+## Looking into the model
+RF_model$finalModel
+## Predicting on the Test dataset
+RF_pred <- predict(RF_model, newdata = testing)
+RF_confusion <- confusionMatrix(RF_pred, testing$classe)
+RF_confusion$table
+RF_confusion$overall['Accuracy']
+## Plot Accuracy results by factor
+plot(RF_confusion$table, col=RF_confusion$byClass, main="Random Forest")
+```
+
+The accuracy of the Random Tree model is 0.996, which appears to be very high. The sample error is approximately 0.004. The number of predictors yielding the highest accuracy is 26. With a greater number of predictors, the accuracy decreases when plotting additional predictors, so this reflects the correlation chart above that indicates there are some variables with strong correlation. Of note, the Random Forest model took a significant time to run, approximately ten minutes.
+
+### Gradient Boosting Model
+``` {r Gradient Boosting}
+## Fitting the model
+GBM_model <- train(classe~., data=training, method="gbm", trControl=trControlValues, verbose = FALSE)
+## Looking into the model
+GBM_model$finalModel
+## Predicting on the Test dataset
+GBM_pred <- predict(GBM_model, newdata = testing)
+GBM_confusion <- confusionMatrix(GBM_pred, testing$classe)
+GBM_confusion$table
+GBM_confusion$overall['Accuracy']
+## Plot Accuracy results by factor
+plot(GBM_confusion$table, col=GBM_confusion$byClass, main="Gradient Boosting")
+```
+
+The accuracy of the Gradient Boosted model is 0.958, which is high, but not as accurate as the Random Forest model.  The sample error is approximately 0.042. Of note, the GBM model took significantly less time than the Random Forest model, approximately 90 seconds.
+
+## Best Model
+The accuracy of the Random Forest was the highest, by several percentage points.  Using this model on the validation data yields:
+```{r best model}
+finalResult <- predict(RF_model, newdata= finalTest)
+finalResult
+```
+These results will be used in the subsequent quiz.
